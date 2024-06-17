@@ -1,0 +1,11 @@
+*
+
+!/bb
+!/bb/**
+!/src
+!/src/**
+!/.cljfmt.edn
+!/.dockerignore
+!/.gitignore
+!/bb.edn
+!/deps.edn
