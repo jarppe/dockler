@@ -1,0 +1,5 @@
+*
+
+!/docker/dev/.bashrc
+!/deps.edn
+!/src
