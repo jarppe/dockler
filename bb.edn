@@ -1,1 +1,5 @@
-{:tasks {}}
+{:tasks {test:clj   {:doc  "Run clj tests"
+                     :task (clojure "-M:test -m kaocha.runner --reporter" "kaocha.report/dots")}
+
+         test:watch {:doc  "Run clj tests and watch for changes"
+                     :task (clojure "-X:test:watch-test")}}}

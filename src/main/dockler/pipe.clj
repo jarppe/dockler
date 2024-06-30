@@ -54,29 +54,3 @@
                              true)
                          false))))))
 
-
-(comment
-  (let [in  (pipe)
-        fut (future
-              (let [^java.io.InputStream in     in
-                    buffer (byte-array 16)]
-                (.println System/err "\n:fut start")
-                (loop []
-                  (let [c (.read in buffer)]
-                    (when (not= c -1)
-                      (.println System/err (str c " [" (String. buffer 0 c) "] "))
-                      (recur))))
-                (.println System/err "\n:fut done")))]
-    (.println System/err "\n:test start")
-    (in (.getBytes "Hello"))
-    (in (.getBytes ", "))
-    (in (.getBytes "world"))
-    (in (.getBytes "!"))
-    (in)
-    (try
-      (deref fut 100 :timeout)
-      (catch Exception e
-        (.println System/err "\n\n: fut error")
-        (.printStackTrace e))))
-  ;
-  )

@@ -1,192 +1,324 @@
 (ns dockler.api
-  (:require [dockler.client :as c]
-            [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [dockler.http :as http]
+            [dockler.stream :as stream]
+            [dockler.data :as data]))
+
+
+;;
+;; ================================================================================================
+;; Client:
+;; ================================================================================================
+;;
+
+
+(defn create-client
+  ([] (create-client nil))
+  ([uri] (http/create-client uri)))
+
+
+;;
+;; ================================================================================================
+;; Connection:
+;; ================================================================================================
+;;
+
+
+(defn connect
+  (^java.io.Closeable [] (connect nil))
+  (^java.io.Closeable [client]
+   (http/connect client)))
+
+
+;;
+;; ================================================================================================
+;; Images:
+;; ================================================================================================
+;;
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Image/operation/ImageList
 
 (defn image-list
   ([] (image-list nil))
-  ([query] (-> (c/GET "/images/json" {:query-params query})
-               (c/success-body!))))
+  ([query]
+   (-> (http/GET "/images/json" {:query-params query})
+       (http/assert-status! #{200})
+       :body)))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Image/operation/ImageInspect
 
-(defn image-inspect [id] (-> (c/GET (str "/images/" id "/json"))
-                             (c/success-body!)))
+(defn image-inspect [id]
+  (-> (http/GET (str "/images/" id "/json"))
+      (http/assert-status! #{200})
+      :body))
 
 
-(comment
-  (-> (image-list)
-      (first))
+(defn image-pull [image-tag]
+  (-> (http/POST "/images/create" {:query-params {"fromImage" image-tag}})
+      (http/assert-status! #{200})))
 
-  (image-list {:filters {:label ["com.docker.compose.project=devcontainersdemo"]}})
 
-  (image-inspect (-> (image-list)
-                     (first)
-                     :id)))
+;;
+;; ================================================================================================
+;; Networks:
+;; ================================================================================================
+;;
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Network/operation/NetworkList
 
 (defn network-list
   ([] (network-list nil))
-  ([query] (-> (c/GET "/networks" {:query-params query})
-               (c/success-body!))))
+  ([filters]
+   (-> (http/GET "/networks" (when (seq filters) {:query-params {:filters filters}}))
+       (http/assert-status! #{200})
+       :body)))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Network/operation/NetworkDelete
 
 (defn network-inspect
   ([id] (network-inspect id nil))
-  ([id query] (-> (c/GET (str "/networks/" id) {:query-params query})
-                  (c/success-body!))))
-
-
-(comment
-  (network-list)
-
-  (network-list {:filters {:label ["com.docker.compose.project=devcontainersdemo"]}})
-
-  (network-inspect (-> (network-list)
-                       (first)
-                       :id)))
+  ([id query]
+   (-> (http/GET (str "/networks/" id) {:query-params query})
+       (http/assert-status! #{200})
+       :body)))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Network/operation/NetworkDelete
 
-(defn network-remove [id] (-> (c/DELETE (str "/network/" id))
-                              (c/success-body!)))
+(defn network-remove [id]
+  (-> (http/DELETE (str "/networks/" id))
+      (http/assert-status! #{204}))
+  nil)
+
+
+; https://docs.docker.com/engine/api/v1.46/#tag/Network/operation/NetworkPrune
+
+(defn network-prune [filters]
+  (-> (http/POST "/networks-prune" {:query-params {:filters filters}})
+      (http/assert-status! #{200 404})
+      :body))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Network/operation/NetworkCreate
 
-(defn network-create [body] (-> (c/POST "/networks/create" {:body body})
-                                (c/success-body!)))
+(defn network-create [body]
+  (-> (http/POST "/networks/create" {:body body})
+      (http/assert-status! #{201})
+      :body
+      :id))
 
+
+; https://docs.docker.com/engine/api/v1.45/#tag/Network/operation/NetworkConnect
 
 (defn network-connect-container
   ([network-id container-id] (network-connect-container network-id container-id nil))
   ([network-id container-id endpoint-config]
-   (-> (c/POST (str "/networks/" network-id "/connect") {:body {:container       container-id
-                                                                :endpoint-config (or endpoint-config {})}})
-       (c/success-body!))))
+   (-> (http/POST (str "/networks/" network-id "/connect") {:body {:container       container-id
+                                                                   :endpoint-config (or endpoint-config {})}})
+       (http/assert-status! #{200})
+       :body)))
+
+
+;;
+;; ================================================================================================
+;; Containers:
+;; ================================================================================================
+;;
+
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerList
 
 (defn container-list
-  ([] (container-list nil))
-  ([query] (-> (c/GET "/containers/json" query)
-               (c/success-body!))))
+  ([] (container-list nil nil))
+  ([filters all?]
+   (-> (http/GET "/containers/json" {:query-params {:all     (if all? true false)
+                                                    :filters filters}})
+       (http/assert-status! #{200})
+       :body)))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerInspect
 
 (defn container-inspect
   ([id] (container-inspect id nil))
-  ([id query] (-> (c/GET (str "/containers/" id "/json") {:query-params query})
-                  (c/success-body!))))
-
-
-(comment
-  (container-list)
-  (container-inspect (-> (container-list)
-                         (first)
-                         :id)))
+  ([id query]
+   (-> (http/GET (str "/containers/" id "/json") {:query-params query})
+       (http/assert-status! #{200})
+       :body)))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerCreate
-;
-; Note: This implementation combines the query and body expected by 
-;       the Docker API into `opts`
 
 (defn container-create
   ([body] (container-create body nil))
   ([body opts]
-   (-> (c/POST "/containers/create" (-> opts
-                                        (assoc :query-params (select-keys opts [:name :platform]))
-                                        (dissoc :name :platform)
-                                        (assoc :body body)))
-       (c/success-body!))))
+   (-> (http/POST "/containers/create" (-> opts
+                                           (assoc :query-params (select-keys opts [:name :platform]))
+                                           (dissoc :name :platform)
+                                           (assoc :body body)))
+       (http/assert-status! #{201})
+       :body
+       :id)))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerStart
 
-(defn container-start [id] (-> (c/POST (str "/containers/" id "/start"))
-                               (c/success-body! c/common-status)))
+(defn container-start [id]
+  (-> (http/POST (str "/containers/" id "/start"))
+      (http/assert-status! #{204 304})
+      :status
+      {204 :started
+       304 :already-started}))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerStop
 
 (defn container-stop
   ([id] (container-stop id nil))
-  ([id query] (-> (c/POST (str "/containers/" id "/stop") {:query-params query})
-                  (c/success-body! c/common-status))))
+  ([id query]
+   (-> (http/POST (str "/containers/" id "/stop") {:query-params query})
+       (http/assert-status! #{204 304})
+       :status
+       {204 :stopped
+        304 :already-stopped})))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerRestart
 
 (defn container-restart
   ([id] (container-restart id nil))
-  ([id query] (-> (c/POST (str "/containers/" id "/restart") {:query-params query})
-                  (c/success-body!))))
+  ([id query]
+   (-> (http/POST (str "/containers/" id "/restart") {:query-params query})
+       (http/assert-status! #{204}))
+   nil))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerKill
 
 (defn container-kill
   ([id] (container-kill id nil))
-  ([id query] (-> (c/POST (str "/containers/" id "/kill") {:query-params query})
-                  (c/success-body!))))
+  ([id query]
+   (-> (http/POST (str "/containers/" id "/kill") {:query-params query})
+       (http/assert-status! #{204}))
+   nil))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerWait
 
 (defn container-wait
   ([id] (container-wait id nil))
-  ([id query] (-> (c/POST (str "/containers/" id "/wait") {:query-params query})
-                  (c/success-body!))))
+  ([id query]
+   (-> (http/POST (str "/containers/" id "/wait") {:query-params query})
+       (http/assert-status! #{200})
+       :body)))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerDelete
 
 (defn container-delete
   ([id] (container-delete id nil))
-  ([id query] (-> (c/DELETE (str "/containers/" id) {:query-params query})
-                  (c/success-body! c/common-status))))
+  ([id query]
+   (-> (http/DELETE (str "/containers/" id) {:query-params query})
+       (http/assert-status! #{204 409})
+       :status
+       {204 :ok
+        409 :conflict})))
 
 
-; Attach to running container and listen for stdout and stderr streams. When a message is 
-; read from container calls `on-message` with two args, first is either :stdout or :stderr, 
-; and the second is the string message.
-; 
-; Returns a future. Interrupt the future to terminate the attachment. The future completed 
-; when the attachment is terminated, either by interrupt or when the container is terminated.
+; https://docs.docker.com/engine/api/v1.46/#tag/Container/operation/ContainerPrune
 ;
-; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerAttach
+; The `filters` must be a map with string keys and string sequences as vals.
+; For example:
+;   (container-prune {:label ["some.label" "some.other.label=test"]})
+;
 
+(defn container-prune [filters]
+  (-> (http/POST "/containers/prune" {:query-params {:filters filters}})
+      (http/assert-status! #{200})
+      :body))
+
+
+; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerAttach
+;
+; Attach to running container and return java.io.InputStream for stdout and/or stderr.
+; Returns a closeable record with `:stdout` and `:stderr` keys. 
+;
 
 (defn container-attach
-  (^java.io.Closeable [id] (container-attach id {:stdout true
-                                                 :stderr true}))
-  (^java.io.Closeable [id opts]
-   (c/attach id opts)))
+  (^java.io.Closeable [container-id] (container-attach container-id nil))
+  (^java.io.Closeable [container-id opts]
+   (-> (http/POST
+         (str "/containers/" container-id "/attach")
+         {:conn         (connect (:client opts))
+          :query-params {:stream 1
+                         :stdout (if (:stdout opts) true false)
+                         :stderr (if (:stderr opts) true false)}
+          :headers      {"content-type" "application/vnd.docker.raw-stream"
+                         "accept"       "application/vnd.docker.multiplexed-stream"
+                         "connection"   "Upgrade"
+                         "upgrade"      "tcp"}})
+       (http/assert-status! #{101})
+       (stream/stream-resp opts))))
+
+
+; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerArchiveInfo
+
+(defn container-archive-info [id path]
+  (-> (http/HEAD (str "/containers/" id "/archive") {:query-params {:path path}})
+      (http/assert-status! #{200})
+      :headers
+      (get "x-docker-container-path-stat")
+      (data/base64-decode)
+      (data/json-parse)
+      (data/go->clj)))
+
+
+; https://docs.docker.com/engine/api/v1.46/#tag/Container/operation/ContainerChanges
+
+(defn container-changes [id]
+  (-> (http/GET (str "/containers/" id "/changes"))
+      (http/assert-status! #{200})
+      :body))
+
+
+; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerArchive
+
+(defn container-archive ^java.io.InputStream [id path]
+  (-> (http/GET (str "/containers/" id "/archive") {:query-params {:path path}})
+      (http/assert-status! #{200})
+      (http/assert-content-type! "application/x-tar")
+      :in))
+
+
+; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/PutContainerArchive
+
+(defn container-extract
+  ([id path ^java.io.InputStream tar] (container-extract id path tar nil))
+  ([id path ^java.io.InputStream tar opts]
+   (-> (http/PUT
+         (str "/containers/" id "/archive")
+         {:query-params {"path"       path
+                         "copyUIDGID" (:copy-uidgid opts false)}
+          :headers      {"content-type"     "application/x-tar"
+                         "content-encoding" (:content-encoding opts "identity")}
+          :body         tar})
+       (http/assert-status! #{200})
+       :body)))
 
 
 (comment
 
   ;; Create container:
 
-  (container-create {:env               ["MODE=world"]
-                     :cmd               ["bash" "-c" "while true; do date; sleep 1; done"]
-                     :image             "debian:12-slim"
-                     :labels            {"test.id" "foo"}
-                     :host-config       {:init true}
-                     :networking-config {"devcontainersdemo_default" {}}}
+  (container-create {:cmd         ["bash" "-c" "while true; do date; sleep 1; done"]
+                     :image       "debian:12-slim"
+                     :host-config {:init true}}
                     {:name "test-1234"})
-  ;; {:id "6b4d6c50dff1e906a76795c51f19bee97943ee187d547fce2392829b0e344c28"
-  ;;  :warnings []} 
+  ;; "6b4d6c50dff1e906a76795c51f19bee97943ee187d547fce2392829b0e344c28"
 
   ;; Is it running?
 
@@ -209,11 +341,14 @@
 
   ;; Attach listener that prints stdout to console:
 
-  (def fut (container-attach "test-1234"
-                             (fn [stream-type message]
-                               (println (format "[%s] %s" (name stream-type) (pr-str (String. message java.nio.charset.StandardCharsets/UTF_8)))))))
+  (require 'clojure.java.io)
 
-  ;; Console should show output.
+  (with-open [conn (container-attach "test-1234" {:stdout true})]
+    (-> (:stdout conn)
+        (clojure.java.io/reader)
+        (line-seq)
+        (first)))
+  ;; => "Tue Jun 25 11:42:56 UTC 2024"
 
   ;; List containers, note that the name starts with "/" for some reason:
 
@@ -222,22 +357,10 @@
        (count))
   ;; => 1
 
-  ;; Future still pending?
-
-  (realized? fut)
-  ;; => false
-
-  ;; You can cancel just the attachment by `(future-cancel fut)`
-
-  ;; Stop it:
+  ;; Stop container:
 
   (container-stop "test-1234")
   ;; => :ok
-
-  ;; Future done?
-
-  (realized? fut)
-  ;; => true
 
   ;; Is it still running?
 
@@ -276,43 +399,75 @@
   )
 
 
+;;
+;; ================================================================================================
+;; Exec API:
+;; ================================================================================================
+;;
+
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Exec/operation/ContainerExec
 
 (defn exec-create [id body]
-  (-> (c/POST (str "/containers/" id "/exec") {:body body})
-      (c/success-body!)))
-
-
-; https://docs.docker.com/engine/api/v1.45/#tag/Exec/operation/ExecStart
-
-(defn exec-start [id body]
-  (-> (c/POST (str "/exec/" id "/start") {:body body})
-      (c/success-body!)))
+  (-> (http/POST (str "/containers/" id "/exec") {:body body})
+      (http/assert-status! #{201})
+      :body
+      :id))
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Exec/operation/ExecInspect
 
 (defn exec-inspect [id]
-  (-> (c/GET (str "/exec/" id "/json"))
-      (c/success-body!)))
+  (-> (http/GET (str "/exec/" id "/json"))
+      (http/assert-status! #{200})
+      :body))
 
+
+; https://docs.docker.com/engine/api/v1.45/#tag/Exec/operation/ExecStart
+
+(defn exec-start
+  (^java.io.Closeable [id] (exec-start id nil))
+  (^java.io.Closeable [id opts]
+   (-> (http/POST (str "/exec/" id "/start") {:conn    (connect (:client opts))
+                                              :headers {"content-type" "application/vnd.docker.raw-stream"
+                                                        "accept"       "application/vnd.docker.multiplexed-stream"
+                                                        "connection"   "Upgrade"
+                                                        "upgrade"      "tcp"}
+                                              :body    {:detach false
+                                                        :tty    false}})
+       (http/assert-status! #{101})
+       (stream/stream-resp opts))))
+
+
+(defn exec-start-detach
+  ([id] (exec-start-detach id nil))
+  ([id opts]
+   (-> (http/POST (str "/exec/" id "/start") {:conn    (connect (:client opts))
+                                              :headers {"content-type" "application/vnd.docker.raw-stream"
+                                                        "accept"       "application/vnd.docker.multiplexed-stream"
+                                                        "connection"   "Upgrade"
+                                                        "upgrade"      "tcp"}
+                                              :body    {:detach true
+                                                        :tty    (:tty opts false)}})
+       (http/assert-status! #{200})
+       :body)))
+
+
+;; Helper to running a process in container by creating and starting an 
+;; exec container:
 
 (defn exec [id cmd]
-  (let [exec-id   (-> (exec-create id {:attach-stdin  false
-                                       :attach-stdout true
-                                       :attach-stderr true
-                                       :cmd           (cond
-                                                        (sequential? cmd) cmd
-                                                        (string? cmd) (str/split cmd #"\s+")
-                                                        :else (throw (ex-info "invalid cmd" {:cmd cmd})))})
-                      :id)
-        output    (with-open [resp (c/exec-start exec-id
-                                                 {:detach false
-                                                  :tty    false}
-                                                 {:stdin  false
-                                                  :stdout true
-                                                  :stderr true})]
+  (let [exec-id   (exec-create id {:attach-stdin  false
+                                   :attach-stdout true
+                                   :attach-stderr true
+                                   :cmd           (cond
+                                                    (sequential? cmd) cmd
+                                                    (string? cmd) (str/split cmd #"\s+")
+                                                    :else (throw (ex-info "invalid cmd" {:cmd cmd})))})
+        output    (with-open [resp (exec-start exec-id
+                                               {:stdin  false
+                                                :stdout true
+                                                :stderr true})]
                     {:stdout (slurp (:stdout resp))
                      :stderr (slurp (:stderr resp))})
         exit-code (-> (exec-inspect exec-id)
@@ -322,28 +477,24 @@
 
 (comment
 
-  (def base-id (-> (container-create {:image       "debian:12-slim"
-                                      :cmd         ["/bin/sleep" "infinity"]
-                                      :host-config {:init true}}
-                                     {:name "exec-base"})
-                   :id))
+  (def base-id (container-create {:image       "debian:12-slim"
+                                  :cmd         ["/bin/sleep" "infinity"]
+                                  :host-config {:init true}}
+                                 {:name "exec-base"}))
 
   (container-start base-id)
 
-  (def exec-id (-> (exec-create base-id {:attach-stdin  false
-                                         :attach-stdout true
-                                         :attach-stderr false
-                                         :cmd           ["/bin/uname" "-a"]})
-                   :id))
+  (def exec-id (exec-create base-id {:attach-stdin  false
+                                     :attach-stdout true
+                                     :attach-stderr false
+                                     :cmd           ["/bin/uname" "-a"]}))
 
   (exec-inspect exec-id)
 
-  (with-open [resp (c/exec-start exec-id
-                                 {:detach false
-                                  :tty    false}
-                                 {:stdin  false
-                                  :stdout true
-                                  :stderr true})]
+  (with-open [resp (exec-start exec-id
+                               {:stdin  false
+                                :stdout true
+                                :stderr true})]
     (slurp (:stdout resp)))
   ; => "Linux 97bba021a41f 6.6.26-linuxkit #1 SMP Sat Apr 27 04:13:19 UTC 2024 aarch64 GNU/Linux\n"
 
@@ -359,19 +510,20 @@
   ;;     :exit-code 1}
 
 
-  (def network-id (-> (network-create {:name     "docker-test"
-                                       :internal true
-                                       :labels   {"project" "docker-test"}})
-                      :id))
+  (def network-id (network-create {:name     "docker-test-2"
+                                   :internal true
+                                   :labels   {"project" "docker-test"}}))
 
-  (def ws (-> (container-create {:image             "eclipse-temurin:21-jdk"
-                                 :cmd               (str/split "jwebserver -b 0.0.0.0 -p 8111" #"\s+")
-                                 :labels            {"test.id" "base"}
-                                 :host-config       {:init true}
-                                 :networking-config {"docker-test" {:aliases ["foo" "bar"]}}}
-                                {:name "ws"})
-              :id))
+  (def ws (container-create {:image             "eclipse-temurin:21-jdk"
+                             :working-dir       "/app"
+                             :cmd               (str/split "jwebserver -b 0.0.0.0 -p 8111" #"\s+")
+                             :labels            {"test.id" "base"}
+                             :host-config       {:init        true
+                                                 :auto-remove true}
+                             :networking-config {"docker-test" {:aliases ["foo" "bar"]}}}
+                            {:name "ws"}))
 
+  (container-extract ws "/app" (->))
   (container-start ws)
 
   (network-connect-container network-id ws {:aliases ["foo" "bar"]})

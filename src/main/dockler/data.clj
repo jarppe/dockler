@@ -1,7 +1,9 @@
 (ns dockler.data
   (:require [clojure.string :as str]
-            [clojure.walk :as walk])
-  (:import (java.nio.charset StandardCharsets)))
+            [clojure.walk :as walk]
+            [cheshire.core :as json])
+  (:import (java.util Base64)
+           (java.nio.charset StandardCharsets)))
 
 
 (set! *warn-on-reflection* true)
@@ -53,3 +55,13 @@
                            data)
     (sequential? data) (mapv go->clj data)
     :else data))
+
+
+(defn base64-decode ^String [^String v]
+  (-> (Base64/getDecoder)
+      (.decode (str->bytes v))
+      (String. StandardCharsets/UTF_8)))
+
+
+(defn json-parse [^String v]
+  (json/parse-string v))

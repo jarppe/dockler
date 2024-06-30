@@ -23,6 +23,7 @@
     (when (= c -1) (eof!))
     c))
 
+
 (defn- read-frame [^InputStream in]
   (let [t (.read in)]
     (when (not= t -1)
@@ -41,7 +42,8 @@
             stream     (case t
                          1 :stdout
                          2 :stderr)]
-        (when-not (= stream-len (alength message)) (eof!))
+        (when-not (= stream-len (alength message))
+          (eof!))
         [stream message]))))
 
 
@@ -56,6 +58,10 @@
           (when-let [[stream message] (read-frame in)]
             ((streams stream) message)
             (recur))))
+      (catch java.nio.channels.ClosedByInterruptException _)
+      (catch Exception e
+        (.println System/err (str (-> e .getClass .getName) ": " (-> e .getMessage)))
+        (.printStackTrace e System/err))
       (finally
         (when stdout (stdout))
         (when stderr (stderr))
@@ -72,7 +78,11 @@
     (close! -conn)))
 
 
-(defn stream-resp [conn opts resp]
+(defn stream-resp [resp opts]
+  (when-not (-> resp :headers (get "content-type") (= "application/vnd.docker.multiplexed-stream"))
+    (throw (ex-info (str "expected content-type \"application/vnd.docker.multiplexed-stream\", got "
+                         (-> resp :headers (get "content-type") (pr-str)))
+                    {:resp resp})))
   (let [stdout    (when (:stdout opts) (pipe/pipe))
         stderr    (case (:stderr opts)
                     true (pipe/pipe)
@@ -83,6 +93,6 @@
     (map->StreamResp {:stdin      (when (:stdin opts) (:out resp))
                       :stdout     stdout
                       :stderr     stderr
-                      :-conn      conn
+                      :-conn      (:conn resp)
                       :-streaming streaming})))
 
