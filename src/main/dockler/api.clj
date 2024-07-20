@@ -32,6 +32,29 @@
 
 ;;
 ;; ================================================================================================
+;; System:
+;; ================================================================================================
+;;
+
+
+(defn system-info
+  ([] (system-info nil))
+  ([opts]
+   (-> (http/GET "/info" opts)
+       (http/assert-status! #{200})
+       :body)))
+
+
+(defn system-version
+  ([] (system-version nil))
+  ([opts]
+   (-> (http/GET "/version" opts)
+       (http/assert-status! #{200})
+       :body)))
+
+
+;;
+;; ================================================================================================
 ;; Images:
 ;; ================================================================================================
 ;;
@@ -55,9 +78,22 @@
       :body))
 
 
-(defn image-pull [image-tag]
-  (-> (http/POST "/images/create" {:query-params {"fromImage" image-tag}})
-      (http/assert-status! #{200})))
+; https://docs.docker.com/engine/api/v1.45/#tag/Image/operation/ImageCreate
+; The API for this is bit weird. The content-type is `application/json`, but in reality
+; the body contains multiple JSON objects separated by `\r\n` pair. Also, it's important
+; to read all the objects before closing connection, otherwise the image pull is cancelled.
+
+(defn image-pull
+  ([image-tag] (image-pull image-tag nil))
+  ([image-tag opts]
+   (with-open [conn (or (-> opts :conn)
+                        (-> opts :client (http/connect)))]
+     (-> (http/POST "/images/create" {:query-params         {"fromImage" image-tag}
+                                      :conn                 conn
+                                      :multiple-json-objcts true})
+         (http/assert-status! #{200})
+         :body
+         (doall)))))
 
 
 ;;
@@ -134,6 +170,7 @@
 
 (defn container-list
   ([] (container-list nil nil))
+  ([filters] (container-list filters nil))
   ([filters all?]
    (-> (http/GET "/containers/json" {:query-params {:all     (if all? true false)
                                                     :filters filters}})
@@ -152,14 +189,16 @@
 
 
 ; https://docs.docker.com/engine/api/v1.45/#tag/Container/operation/ContainerCreate
+; Note: The Docker API takes container data in body except the `name` and `platform`.
+;       The `name` and `platform` are given as query params. This API takes all values
+;       in `body` argument.
 
 (defn container-create
   ([body] (container-create body nil))
   ([body opts]
    (-> (http/POST "/containers/create" (-> opts
-                                           (assoc :query-params (select-keys opts [:name :platform]))
-                                           (dissoc :name :platform)
-                                           (assoc :body body)))
+                                           (assoc :query-params (select-keys body [:name :platform]))
+                                           (assoc :body (dissoc body :name :platform))))
        (http/assert-status! #{201})
        :body
        :id)))
@@ -314,10 +353,10 @@
 
   ;; Create container:
 
-  (container-create {:cmd         ["bash" "-c" "while true; do date; sleep 1; done"]
+  (container-create {:name        "test-1234"
+                     :cmd         ["bash" "-c" "while true; do date; sleep 1; done"]
                      :image       "debian:12-slim"
-                     :host-config {:init true}}
-                    {:name "test-1234"})
+                     :host-config {:init true}})
   ;; "6b4d6c50dff1e906a76795c51f19bee97943ee187d547fce2392829b0e344c28"
 
   ;; Is it running?
@@ -378,7 +417,7 @@
 
   ;; List all containers:
 
-  (->> (container-list {:query-params {:all true}})
+  (->> (container-list nil true)
        (filter (comp (partial = "/test-1234") first :names))
        (count))
   ;; => 1
@@ -390,7 +429,7 @@
 
   ;; Now it's not found anymore:
 
-  (->> (container-list {:query-params {:all true}})
+  (->> (container-list nil true)
        (filter (comp (partial = "/test-1234") first :names))
        (count))
   ;; => 0
@@ -477,10 +516,10 @@
 
 (comment
 
-  (def base-id (container-create {:image       "debian:12-slim"
+  (def base-id (container-create {:name        "exec-base"
+                                  :image       "debian:12-slim"
                                   :cmd         ["/bin/sleep" "infinity"]
-                                  :host-config {:init true}}
-                                 {:name "exec-base"}))
+                                  :host-config {:init true}}))
 
   (container-start base-id)
 
@@ -514,14 +553,14 @@
                                    :internal true
                                    :labels   {"project" "docker-test"}}))
 
-  (def ws (container-create {:image             "eclipse-temurin:21-jdk"
+  (def ws (container-create {:name              "ws"
+                             :image             "eclipse-temurin:21-jdk"
                              :working-dir       "/app"
                              :cmd               (str/split "jwebserver -b 0.0.0.0 -p 8111" #"\s+")
                              :labels            {"test.id" "base"}
                              :host-config       {:init        true
                                                  :auto-remove true}
-                             :networking-config {"docker-test" {:aliases ["foo" "bar"]}}}
-                            {:name "ws"}))
+                             :networking-config {"docker-test" {:aliases ["foo" "bar"]}}}))
 
   (container-extract ws "/app" (->))
   (container-start ws)

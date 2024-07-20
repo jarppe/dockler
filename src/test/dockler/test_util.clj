@@ -22,7 +22,6 @@
 
 (def ^:dynamic *test-id* nil)
 (def ^:dynamic *test-network-id* nil)
-(def ^:dynamic *test-containers* nil)
 
 
 (defn with-test-setup []
@@ -38,8 +37,9 @@
 
 (defn with-test-network []
   (fn [f]
-    (let [test-network-id (api/network-create {:name   (str *test-id* "-network")
-                                               :labels {"dockler-test" *test-id*}})]
+    (let [test-network-id (api/network-create {:name        (str *test-id* "-network")
+                                               :labels      {"dockler-test" *test-id*}
+                                               :enable-ipv6 false})]
       (try
         (binding [*test-network-id* test-network-id]
           (f))
@@ -47,35 +47,38 @@
           (api/network-remove test-network-id))))))
 
 
+;;
+;; Pull cache:
+;;   Cache images that we have already pulled so that we do not waste time trying to
+;;   pull the same images over and over again.
+;;
+
 (defonce pulled-images (atom #{}))
 
 
-(defn ensure-image-pulled [container]
-  (let [image (:image container)]
-    (when-not (@pulled-images image)
-      (api/image-pull image)
-      (swap! pulled-images conj image)))
-  container)
+(defn ensure-image-pulled [image]
+  (when-not (@pulled-images image)
+    (api/image-pull image)
+    (swap! pulled-images conj image)))
 
 
-(defn- or+ [v default-value]
-  (or v default-value))
+(def default-container-info {:image       "debian:12-slim"
+                             :cmd         ["sleep" "infinity"]
+                             :working-dir "/app"
+                             :labels      {"dockler-test" "true"}})
+
+(def default-host-config {:init   true
+                          :memory (* 6 1024 1024)})
 
 
-(defn make-test-container [container]
-  (let [container-name (:name container (str (or *test-id* "dockler-test-0000")
-                                             "-"
-                                             (gensym "container-")))]
-    (api/container-create (-> container
-                              (dissoc :name)
-                              (update :image or+ "debian:12-slim")
-                              (update :cmd or+ ["sleep" "infinity"])
-                              (update :working-dir or+ "/app")
-                              (update :labels assoc "dockler-test" *test-id*)
-                              (update :host-config assoc :init true)
-                              (update :host-config update :memory or+ (* 6 1024 1024))
-                              (ensure-image-pulled))
-                          {:name container-name})))
+(defn make-test-container [container-info]
+  (ensure-image-pulled (:image container-info "debian:12-slim"))
+  (api/container-create (-> (merge {:name (str (or *test-id* "dockler-test-0000")
+                                               "-"
+                                               (gensym "container-"))}
+                                   default-container-info
+                                   container-info)
+                            (update :host-config (partial merge default-host-config)))))
 
 
 (defmacro with-containers [bindings & body]

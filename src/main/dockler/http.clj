@@ -191,7 +191,20 @@
                   (read-resp-line in)))))]))
 
 
-(defn read-response [_req ^InputStream in]
+(defn- read-json-object [^java.io.InputStream in]
+  (-> (java.io.InputStreamReader. in StandardCharsets/UTF_8)
+      (json/parse-stream)
+      (d/go->clj)))
+
+
+(defn- read-multiple-json-objects [^java.io.InputStream in]
+  (->> (java.io.InputStreamReader. in StandardCharsets/UTF_8)
+       (java.io.BufferedReader.)
+       (line-seq)
+       (map (comp d/go->clj json/parse-string))))
+
+
+(defn read-response [req ^InputStream in]
   (let [[status headers] (read-http-header in)
         content-type     (some-> headers (get "content-type") (str/split #";") (first))
         content-length   (-> headers (get "content-length" "0") (parse-long))
@@ -205,9 +218,9 @@
                            in)
         body             (case content-type
                            "application/octet-stream" (.readAllBytes ^InputStream in)
-                           "application/json"         (-> (java.io.InputStreamReader. ^InputStream in StandardCharsets/UTF_8)
-                                                          (json/parse-stream)
-                                                          (d/go->clj))
+                           "application/json"         (if (-> req :multiple-json-objcts)
+                                                        (read-multiple-json-objects in)
+                                                        (read-json-object in))
                            "text/plain"               (slurp in)
                            nil)]
     {:status  status

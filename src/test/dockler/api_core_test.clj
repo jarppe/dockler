@@ -55,16 +55,16 @@
         image            "debian:12-slim"
         cmd              ["sleep" "infinity"]
         container-1-name (str test-name "-container")
-        container-1-id   (api/container-create {:cmd         cmd
+        container-1-id   (api/container-create {:name        container-1-name
+                                                :cmd         cmd
                                                 :image       image
-                                                :host-config {:init true}}
-                                               {:name container-1-name})
+                                                :host-config {:init true}})
         container-2-name "some-other-test-container"
-        container-2-id   (api/container-create {:cmd         cmd
+        container-2-id   (api/container-create {:name        container-2-name
+                                                :cmd         cmd
                                                 :image       image
                                                 :labels      {"dockler-test" test-name}
-                                                :host-config {:init true}}
-                                               {:name container-2-name})]
+                                                :host-config {:init true}})]
     (util/delete-test-containers)
     (testing "containers with docker-test-... name are deleted"
       (is (match? {:resp {:status 404}}

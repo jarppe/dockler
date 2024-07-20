@@ -57,15 +57,22 @@
 
 
 (deftest containers-attach-to-running-container-test
-  (with-containers [container-id {:cmd ["bash" "-c" "while true; do date; sleep 1; done"]}]
+  (with-containers [container-id {:cmd ["bash" "-c" "while true; do date +%s; sleep 1; done"]}]
     (api/container-start container-id)
-    (is (string? (-> (future
-                       (with-open [conn (api/container-attach container-id {:stdout true})]
-                         (-> (:stdout conn)
-                             (io/reader)
-                             (line-seq)
-                             (first))))
-                     (deref 1500 ::timeout))))))
+    (let [read-line (fn []
+                      (-> (future
+                            (with-open [conn (api/container-attach container-id {:stdout true})]
+                              (-> (:stdout conn)
+                                  (io/reader)
+                                  (line-seq)
+                                  (first))))
+                          (deref 1500 :timeout)))
+          out1      (read-line)
+          out2      (read-line)]
+      (is (match? (m/regex #"\d+") out1))
+      (is (match? (m/regex #"\d+") out2))
+      (is (< (parse-long out1)
+             (parse-long out2))))))
 
 
 (deftest containers-attach-to-new-container-test
@@ -82,7 +89,7 @@
                                   (str/trimr))))]
         @attach-ready?
         (api/container-start container-id)
-        (is (= "hello, world!" (deref message 100 ::timeout))))))
+        (is (= "hello, world!" (deref message 100 :timeout))))))
   (testing "get stderr"
     ; It would be nice if this would work ["bash" "-c" "echo hello, world!" ">>" "/dev/stderr"]
     (with-containers [container-id {:cmd ["ls" "fofofof"]}]
@@ -97,7 +104,7 @@
         @attach-ready?
         (api/container-start container-id)
         (is (= "ls: cannot access 'fofofof': No such file or directory"
-               (deref message 100 ::timeout))))))
+               (deref message 100 :timeout))))))
   (testing "redirect stderr to stdout"
     (with-containers [container-id {:cmd ["ls" "fofofof"]}]
       (let [attach-ready? (promise)
@@ -111,7 +118,7 @@
                                   (first))))]
         @attach-ready?
         (api/container-start container-id)
-        (is (= "ls: cannot access 'fofofof': No such file or directory" (deref message 100 ::timeout)))))))
+        (is (= "ls: cannot access 'fofofof': No such file or directory" (deref message 100 :timeout)))))))
 
 
 (deftest containers-exec-test
@@ -128,8 +135,8 @@
 
 
 (deftest containers-binds-test
-  (with-containers [container-id  {:cmd         ["cat" "./data/index.html"]
-                                   :host-config {:binds [(str test-resources ":/app/data:ro")]}}]
+  (with-containers [container-id {:cmd         ["cat" "./data/index.html"]
+                                  :host-config {:binds [(str test-resources ":/app/data:ro")]}}]
     (let [attach-ready? (promise)
           message       (future
                           (with-open [conn (api/container-attach container-id {:stdout true})]
@@ -140,7 +147,7 @@
       @attach-ready?
       (api/container-start container-id)
       (is (= "<h1>Hello, world!</h1>"
-             (deref message 100 ::timeout))))))
+             (deref message 100 :timeout))))))
 
 
 (deftest containers-extract-tar-test
@@ -216,7 +223,66 @@
                                    (GET))]
                         (if resp
                           resp
-                          (recur))))]
+                          (do (Thread/sleep 10)
+                              (recur)))))]
         (is (= "<h1>Hello, world!</h1>" resp))))))
 
-;; TODO: Add test for network-connect-container
+
+(deftest container-inter-networking-test
+  (let [;; Get free local port:
+        port       (let [socket (java.net.ServerSocket. 0)
+                         port   (.getLocalPort socket)]
+                     (.close socket)
+                     port)
+        ;; Function to make a HTTP GET, retrying on connection failure, returning either
+        ;; the successful response or `:timeout`:
+        GET        (fn [uri]
+                     (let [client       (-> (java.net.http.HttpClient/newBuilder)
+                                            (.connectTimeout (java.time.Duration/ofMillis 10))
+                                            (.build))
+                           request      (-> (java.net.http.HttpRequest/newBuilder)
+                                            (.GET)
+                                            (.uri (java.net.URI. (str "http://127.0.0.1:" port uri)))
+                                            (.timeout (java.time.Duration/ofMillis 10))
+                                            (.build))
+                           body-handler (java.net.http.HttpResponse$BodyHandlers/ofString)
+                           timeout      (+ (System/currentTimeMillis) 5000)]
+                       (loop []
+                         (let [resp (try
+                                      (-> (.send client request body-handler)
+                                          (.body))
+                                      (catch java.io.IOException _
+                                        nil))]
+                           (cond
+                             resp resp
+                             (> (System/currentTimeMillis) timeout) :timeout
+                             :else (do (Thread/sleep 10)
+                                       (recur)))))))
+        *expected* "<h1>Hello, world!</h1>"]
+    ;; Start nginx container to serves static content from /usr/share/nginx/html, mount test-resources to that 
+    ;; directory. Start another nginx container as a proxy server. Configuration is in `test-resources/nginx.conf`. 
+    (with-containers [server-container-id {:name              "server-container-name"
+                                           :hostname          "server-hostname"
+                                           :image             "nginx:1-alpine-slim"
+                                           :cmd               ["nginx" "-g" "daemon off;"]
+                                           :host-config       {:binds [(str test-resources
+                                                                            ":"
+                                                                            "/usr/share/nginx/html"
+                                                                            ":ro")]}
+                                           :networking-config {:endpoints-config {util/*test-network-id* {}}}}
+                      proxy-container-id {:image             "nginx:1-alpine-slim"
+                                          :cmd               ["nginx"]
+                                          :host-config       {:port-bindings {"80/tcp" [{:host-ip   "127.0.0.1"
+                                                                                         :host-port (str port)}]}
+                                                              :binds         [(str test-resources "/nginx.conf"
+                                                                                   ":"
+                                                                                   "/etc/nginx/nginx.conf"
+                                                                                   ":ro")]}
+                                          :networking-config {:endpoints-config {util/*test-network-id* {}}}}]
+      (api/container-start server-container-id)
+      (api/container-start proxy-container-id)
+      ;; Test that the proxy can reach server container container name and hostname:
+      (testing "proxy can reach server using container name"
+        (is (= *expected* (GET "/by-container-name"))))
+      (testing "proxy can reach server using hostname"
+        (is (= *expected* (GET "/by-hostname")))))))
