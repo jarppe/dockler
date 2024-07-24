@@ -78,11 +78,17 @@
   (let [client (or client default-client)
         ch     (client)
         in     (-> (Channels/newInputStream ^ReadableByteChannel ch)
-                   (java.io.BufferedInputStream.))
+                   (java.io.BufferedInputStream.)
+                   (java.io.PushbackInputStream. 8))
         out    (-> (Channels/newOutputStream ^WritableByteChannel ch)
                    (java.io.BufferedOutputStream.))
         host   (-> client (meta) :host)]
     (->Connection in out ch client host)))
+
+
+(defn open ^Connection [^Connection conn]
+  (let [client (-> conn :client)]
+    (connect client)))
 
 
 ;;
@@ -101,12 +107,14 @@
 (def ^:private ^"[B" HTTP-1-1 (d/str->bytes "HTTP/1.1"))
 (def ^:private ^"[B" HEADER-SEP (d/str->bytes ": "))
 
+(def docker-api-version "1.46")
+(def docker-api-prefix (str "/v" docker-api-version))
 
 (defn- write-http-header ^OutputStream [^OutputStream out req]
   (doto out
     (.write (-> req :method (or :get) (name) (str/upper-case) (d/str->bytes)))
     (.write SP)
-    (.write (-> req :uri (d/str->bytes))))
+    (.write (->> req :uri (str docker-api-prefix) (d/str->bytes))))
   (when-let [query (-> req :query-params)]
     (.write out QUESTION-MARK)
     (loop [first          true
@@ -141,7 +149,7 @@
   out)
 
 
-(defn- write-request [req ^OutputStream out]
+(defn write-request [req ^OutputStream out]
   (let [body  (:body req)
         json? (or (sequential? body) (map? body) (set? body))]
     (write-http-header out (cond-> req
@@ -193,7 +201,7 @@
 
 (defn- read-json-object [^java.io.InputStream in]
   (-> (java.io.InputStreamReader. in StandardCharsets/UTF_8)
-      (json/parse-stream)
+      (json/parse-stream-strict)
       (d/go->clj)))
 
 
@@ -201,7 +209,7 @@
   (->> (java.io.InputStreamReader. in StandardCharsets/UTF_8)
        (java.io.BufferedReader.)
        (line-seq)
-       (map (comp d/go->clj json/parse-string))))
+       (mapv (comp d/go->clj json/parse-string))))
 
 
 (defn read-response [req ^InputStream in]
@@ -216,16 +224,18 @@
         in               (if gzip?
                            (java.util.zip.GZIPInputStream. in)
                            in)
-        body             (case content-type
-                           "application/octet-stream" (.readAllBytes ^InputStream in)
-                           "application/json"         (if (-> req :multiple-json-objcts)
-                                                        (read-multiple-json-objects in)
-                                                        (read-json-object in))
-                           "text/plain"               (slurp in)
-                           nil)]
-    {:status  status
-     :headers headers
-     :body    body}))
+        body             (when (not= status 101)
+                           (case content-type
+                             "application/json" (if (-> req :multiple-json-objcts)
+                                                  (read-multiple-json-objects in)
+                                                  (read-json-object in))
+                             "text/plain"       (slurp in)
+                             (.readAllBytes ^InputStream in)))]
+    (with-meta
+      {:status  status
+       :headers headers
+       :body    body}
+      {:req req})))
 
 
 ;;
@@ -233,22 +243,12 @@
 ;;
 
 
-(defn request [req]
-  (let [client (or (:client req) default-client)
-        conn   (or (:conn req) (connect client))
-        in     (:in conn)
-        out    (:out conn)]
-    (try
-      (-> req
-          (update :headers assoc "host" (:host conn))
-          (write-request out)
-          (read-response in)
-          (merge {:in   in
-                  :out  out
-                  :conn conn}))
-      (finally
-        (when-not (:conn req)
-          (.close ^java.io.Closeable conn))))))
+(defn request [conn req]
+  (-> req
+      (assoc :conn conn)
+      (update :headers assoc "host" (:host conn))
+      (write-request (:out conn))
+      (read-response (:in conn))))
 
 
 ;;
@@ -256,10 +256,15 @@
 ;;
 
 
-(defn- simple-request [method path opts]
-  (request (assoc opts
-                  :method method
-                  :uri path)))
+(defn- simple-request [conn method path opts]
+  (let [conn' (or conn (connect nil))]
+    (try
+      (request conn' (assoc opts
+                            :method method
+                            :uri path))
+      (finally
+        (when-not conn
+          (.close ^java.io.Closeable conn'))))))
 
 
 ;;
@@ -268,28 +273,28 @@
 
 
 (defn GET
-  ([path] (GET path nil))
-  ([path opts] (simple-request :get path opts)))
+  ([conn path] (GET conn path nil))
+  ([conn path opts] (simple-request conn :get path opts)))
 
 
 (defn POST
-  ([path] (POST path nil))
-  ([path opts] (simple-request :post path opts)))
+  ([conn path] (POST conn path nil))
+  ([conn path opts] (simple-request conn :post path opts)))
 
 
 (defn PUT
-  ([path] (PUT path nil))
-  ([path opts] (simple-request :put path opts)))
+  ([conn path] (PUT conn path nil))
+  ([conn path opts] (simple-request conn :put path opts)))
 
 
 (defn DELETE
-  ([path] (DELETE path nil))
-  ([path opts] (simple-request :delete path opts)))
+  ([conn path] (DELETE conn path nil))
+  ([conn path opts] (simple-request conn :delete path opts)))
 
 
 (defn HEAD
-  ([path] (HEAD path nil))
-  ([path opts] (simple-request :head path opts)))
+  ([conn path] (HEAD conn path nil))
+  ([conn path opts] (simple-request conn :head path opts)))
 
 
 ;;

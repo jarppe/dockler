@@ -64,35 +64,34 @@
         (.printStackTrace e System/err))
       (finally
         (when stdout (stdout))
-        (when stderr (stderr))
-        (close! in)))))
+        (when stderr (stderr))))))
 
 
-(defrecord StreamResp [^OutputStream stdin ^InputStream stdout ^InputStream stderr ^java.io.Closeable -conn -streaming]
+(defrecord StreamResp [^OutputStream stdin ^InputStream stdout ^InputStream stderr -conn -streaming]
   java.io.Closeable
   (close [_]
     (when -streaming (future-cancel -streaming))
-    (close! stdin)
     (close! stdout)
     (close! stderr)
     (close! -conn)))
 
 
-(defn stream-resp [resp opts]
+(defn stream-resp [resp streams]
   (when-not (-> resp :headers (get "content-type") (= "application/vnd.docker.multiplexed-stream"))
     (throw (ex-info (str "expected content-type \"application/vnd.docker.multiplexed-stream\", got "
                          (-> resp :headers (get "content-type") (pr-str)))
                     {:resp resp})))
-  (let [stdout    (when (:stdout opts) (pipe/pipe))
-        stderr    (case (:stderr opts)
+  (let [stdout    (when (:stdout streams) (pipe/pipe))
+        stderr    (case (:stderr streams)
                     true (pipe/pipe)
                     :stdout stdout
                     nil)
+        conn      (-> resp (meta) :req :conn)
         streaming (when (or stdout stderr)
-                    (stream-frames (:in resp) stdout stderr))]
-    (map->StreamResp {:stdin      (when (:stdin opts) (:out resp))
+                    (stream-frames (-> conn :in) stdout stderr))]
+    (map->StreamResp {:stdin      (when (:stdin streams) (-> conn :out))
                       :stdout     stdout
                       :stderr     stderr
-                      :-conn      (:conn resp)
+                      :-conn      conn
                       :-streaming streaming})))
 
