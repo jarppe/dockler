@@ -1,34 +1,12 @@
 (ns dockler.chunked-input-stream-test
   (:require [clojure.test :as test :refer [deftest is are testing]]
             [matcher-combinators.test]
-            [dockler.content-stream :as cs])
-  (:import (java.io ByteArrayInputStream
-                    PushbackInputStream)
-           (java.nio.charset StandardCharsets)))
+            [dockler.content-stream :as cs]))
 
 
 (defn byte-stream ^java.io.InputStream [^String s]
-  (-> (.getBytes s StandardCharsets/UTF_8)
-      (ByteArrayInputStream.)
-      (PushbackInputStream. 8)))
-
-
-(deftest maybe-discard-extra-bytes-test
-  (are [input expected] (= expected (-> (byte-stream input)
-                                        (cs/maybe-discard-extra-bytes)
-                                        (.readAllBytes)
-                                        (String. StandardCharsets/UTF_8)))
-    ""           ""
-    "0"          "0"
-    "0$"         "0$"
-    "0\r"        "0\r"
-    "0\r$"       "0\r$"
-    "0\r\n"      "0\r\n"
-    "0\r\n$"     "0\r\n$"
-    "0\r\n\r"    "0\r\n\r"
-    "0\r\n\r$"   "0\r\n\r$"
-    "0\r\n\r\n"  ""
-    "0\r\n\r\n$" "$"))
+  (-> (.getBytes s java.nio.charset.StandardCharsets/UTF_8)
+      (java.io.ByteArrayInputStream.)))
 
 
 (deftest read-chunk-len-test
@@ -40,9 +18,7 @@
     "12\r\n$"    0x12
     "01\r\n$"    0x01
     ; The terminating chunk is read completly:
-    "0\r\n\r\n$"  0x00
-    ; The possible extra bytes are discarded:
-    "0\r\n\r\n0\r\n\r\n$" 0x00))
+    "0\r\n\r\n$"  0x00))
 
 
 ; From https://en.wikipedia.org/wiki/Chunked_transfer_encoding#Encoded_data
@@ -64,7 +40,7 @@
     (testing "Read the chunked data"
       (is (match? (-> chunked
                       (.readAllBytes)
-                      (String. StandardCharsets/UTF_8))
+                      (String. java.nio.charset.StandardCharsets/UTF_8))
                   decoded)))
     (testing "The chunked stream is at EOF"
       (is (= -1 (.read chunked))))

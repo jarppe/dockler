@@ -78,15 +78,14 @@
   (let [client (or client default-client)
         ch     (client)
         in     (-> (Channels/newInputStream ^ReadableByteChannel ch)
-                   (java.io.BufferedInputStream.)
-                   (java.io.PushbackInputStream. 8))
+                   (java.io.BufferedInputStream.))
         out    (-> (Channels/newOutputStream ^WritableByteChannel ch)
                    (java.io.BufferedOutputStream.))
         host   (-> client (meta) :host)]
     (->Connection in out ch client host)))
 
 
-(defn open ^Connection [^Connection conn]
+(defn clone ^Connection [^Connection conn]
   (let [client (-> conn :client)]
     (connect client)))
 
@@ -109,6 +108,7 @@
 
 (def docker-api-version "1.46")
 (def docker-api-prefix (str "/v" docker-api-version))
+
 
 (defn- write-http-header ^OutputStream [^OutputStream out req]
   (doto out
@@ -176,6 +176,27 @@
 ;;
 
 
+;;
+;; NOTE: Weird behaviour from Docker daemon HTTP API
+;;
+;; Sometimes the docker daemon returns an extra five bytes at the end of chunked body. 
+;; You can verify this with curl:
+;;
+;;    $ curl -v --unix-socket /var/run/docker.sock http://localhost/v1.46/version
+;;    ...normal curl output...
+;;    * Leftovers after chunking: 5 bytes 
+;;
+;; The `Leftovers after chunking: 5 bytes` message denotes that the response had a body with 
+;; valid chunked encoding content, but after the valid content the response also contained 5 
+;; extra bytes. The extra bytes are always the same: `0\r\n\r\n`. It looks as the daemon 
+;; sends empty content encoded as chunked (empty content is encoded as `0\r\n\r\n`).
+;;
+;; When reading a response from input this implementation tolerates the possible extra bytes.
+;; If the first line is `0\r\n` it is assumed that the input has the extra bytes. The line and
+;; the following empty line are discarded.
+;;
+
+
 (defn- read-resp-line ^String [^InputStream in]
   (let [sb (StringBuilder.)]
     (loop [c (.read in)]
@@ -186,8 +207,15 @@
             (recur (.read in)))))))
 
 
-(defn- read-http-header [in]
+(defn- read-http-header [^InputStream in]
   (let [status-line (read-resp-line in)
+        ;; If we get extra end-of-chunk-stream marker, discard it and read 
+        ;; status line again: 
+        status-line (if (= status-line "0")
+                      (do (.read in)
+                          (.read in)
+                          (read-resp-line in))
+                      status-line)
         [_ status]  (re-matches #"HTTP/1.1 (\d+) .*" status-line)]
     [(parse-long status)
      (loop [headers (transient {})

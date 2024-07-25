@@ -9,3 +9,5 @@
 !/.gitignore
 !/bb.edn
 !/deps.edn
+!/README.md
+!/tests.edn

@@ -294,7 +294,7 @@
 ;
 
 (defn container-attach ^java.io.Closeable [conn container-id streams]
-  (let [attach-conn (http/open conn)]
+  (let [attach-conn (http/clone conn)]
     (-> (http/POST attach-conn (str "/containers/" container-id "/attach") {:query-params {:stream 1
                                                                                            :stdout (if (:stdout streams) true false)
                                                                                            :stderr (if (:stderr streams) true false)}
@@ -479,7 +479,7 @@
   (^java.io.Closeable [conn id] (exec-start conn id nil nil))
   (^java.io.Closeable [conn id streams] (exec-start conn id streams nil))
   (^java.io.Closeable [conn id streams body]
-   (let [exec-conn (http/open conn)]
+   (let [exec-conn (http/clone conn)]
      (-> (http/POST exec-conn (str "/exec/" id "/start") {:headers {"content-type" "application/vnd.docker.raw-stream"
                                                                     "accept"       "application/vnd.docker.multiplexed-stream"
                                                                     "connection"   "Upgrade"

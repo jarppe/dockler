@@ -58,44 +58,6 @@
 ;;
 
 
-;; Sometimes the docker daemon returns an extra five bytes at the end of chunked body. 
-;; You can verify this with curl:
-;;
-;;    $ curl -v --unix-socket /var/run/docker.sock http://localhost/v1.46/version
-;;    ...normal curl output...
-;;    * Leftovers after chunking: 5 bytes 
-;;
-;; The `Leftovers after chunking: 5 bytes` message denotes the fact that the response had a
-;; body with valid chunked encoding content, but the response also contained 5 extra bytes.
-;;
-;; The extra bytes are always the same: `0\r\n\r\n`. It looks as the daemon responds with two
-;; bodies, each encoded as chunked. The first is the actual response payload, and the second is
-;; an empty body (empty body is encoded as `0\r\n\r\n`).
-;;
-;; This implementation reads the input stream after the body up to 5 bytes. If the 5 bytes were
-;; those extra bytes it discards them. If not, the read bytes are unread by pushing them back to
-;; input stream for later processing (the input stream must be a java.io.PushbackInputStream).
-;;
-
-
-(def extra-content (map int "0\r\n\r\n"))
-
-
-(defn maybe-discard-extra-bytes ^java.io.PushbackInputStream [^java.io.PushbackInputStream in]
-  (let [pushback (loop [[expected & more] extra-content
-                        excess            []]
-                   (if expected
-                     (let [c (.read in)]
-                       (cond
-                         (= c expected) (recur more (conj excess c))
-                         (= c -1) excess
-                         :else (conj excess c)))
-                     nil))]
-    (when (seq pushback)
-      (.unread in (byte-array pushback)))
-    in))
-
-
 (defn read-chunk-len [^java.io.InputStream in]
   (loop [chunk-len (ascii->hex (read! in))]
     (let [c (read! in)]
@@ -103,9 +65,7 @@
         (do (read! in NL)
             (when (zero? chunk-len)
               (read! in CR)
-              (read! in NL)
-              (when (pos? (.available in))
-                (maybe-discard-extra-bytes in)))
+              (read! in NL))
             chunk-len)
         (recur (long (+ (* chunk-len 16)
                         (ascii->hex c))))))))
