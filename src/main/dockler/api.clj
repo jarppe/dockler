@@ -1,9 +1,9 @@
 (ns dockler.api
   (:require [clojure.string :as str]
             [clojure.java.io :as io]
-            [dockler.http :as http]
-            [dockler.stream :as stream]
-            [dockler.data :as data]))
+            [dockler.impl.http :as http]
+            [dockler.impl.stream :as stream]
+            [dockler.impl.data :as data]))
 
 
 ;;

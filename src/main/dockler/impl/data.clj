@@ -1,4 +1,4 @@
-(ns dockler.data
+(ns dockler.impl.data
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [cheshire.core :as json])

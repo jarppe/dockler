@@ -1,4 +1,4 @@
-(ns dockler.pipe
+(ns dockler.impl.pipe
   (:import (java.nio ByteBuffer)))
 
 

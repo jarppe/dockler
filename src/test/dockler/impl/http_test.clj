@@ -1,8 +1,8 @@
-(ns dockler.http-test
+(ns dockler.impl.http-test
   (:require [clojure.test :as test :refer [deftest is are testing]]
             [clojure.string :as str]
             [matcher-combinators.test]
-            [dockler.http :as http])
+            [dockler.impl.http :as http])
   (:import (java.nio.charset StandardCharsets)))
 
 

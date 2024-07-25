@@ -1,5 +1,5 @@
-(ns dockler.content-stream
-  (:require [dockler.data :as d])
+(ns dockler.impl.content-stream
+  (:require [dockler.impl.data :as d])
   (:import (java.io InputStream
                     OutputStream)
            (java.nio ByteBuffer)))

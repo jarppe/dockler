@@ -1,4 +1,4 @@
-(ns dockler.tar
+(ns dockler.impl.tar
   (:require [clojure.java.io :as io])
   (:import (java.io OutputStream)))
 

@@ -1,9 +1,9 @@
-(ns dockler.http
+(ns dockler.impl.http
   (:require [clojure.string :as str]
             [clojure.java.io :as io]
             [cheshire.core :as json]
-            [dockler.data :as d]
-            [dockler.content-stream :as content])
+            [dockler.impl.data :as d]
+            [dockler.impl.content-stream :as content])
   (:import (java.io InputStream
                     OutputStream)
            (java.net URLEncoder)

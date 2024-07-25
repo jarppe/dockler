@@ -1,7 +1,7 @@
-(ns dockler.chunked-input-stream-test
+(ns dockler.impl.chunked-input-stream-test
   (:require [clojure.test :as test :refer [deftest is are testing]]
             [matcher-combinators.test]
-            [dockler.content-stream :as cs]))
+            [dockler.impl.content-stream :as cs]))
 
 
 (defn byte-stream ^java.io.InputStream [^String s]

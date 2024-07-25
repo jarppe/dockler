@@ -1,5 +1,5 @@
-(ns dockler.stream
-  (:require [dockler.pipe :as pipe])
+(ns dockler.impl.stream
+  (:require [dockler.impl.pipe :as pipe])
   (:import (java.io InputStream
                     OutputStream)))
 
