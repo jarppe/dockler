@@ -4,7 +4,7 @@
             [matcher-combinators.test]
             [matcher-combinators.matchers :as m]
             [dockler.api :as api]
-            [dockler.test-util :as util :refer [*conn* with-containers with-networks]]
+            [dockler.test-util :as util :refer [*conn* with-containers with-networks with-volumes]]
             [clojure.java.io :as io]))
 
 
@@ -276,3 +276,97 @@
         ;; ...and by hostname:
         (testing "proxy can reach server using hostname"
           (is (= *expected* (http-get port "/by-hostname"))))))))
+
+
+(deftest volumes-test
+  (with-volumes [foo {:name "foo"}
+                 bar {}]
+    (is (match? {:name   "foo"
+                 :driver "local"
+                 :scope  "local"}
+                (api/volume-inspect *conn* foo)))
+    (is (match? {:name   (m/regex #"dockler-test-volume-.*")
+                 :driver "local"
+                 :scope  "local"}
+                (api/volume-inspect *conn* bar))))
+  (is (nil? (api/volume-inspect *conn* "foo"))))
+
+
+(deftest volume-mount-test
+  (with-volumes [vol-name {}]
+    ; Create container, exec in it to write /data/test.txt
+    (with-containers [container-id {:cmd         ["sleep" "infinity"]
+                                    :host-config {:mounts [{:source vol-name
+                                                            :type   "volume"
+                                                            :target "/data"}]}}]
+      (api/container-start *conn* container-id)
+      (is (match? {:host-config {:mounts [{:source vol-name
+                                           :type   "volume"
+                                           :target "/data"}]}}
+                  (api/container-inspect *conn* container-id)))
+      (let [exec-id (api/exec-create *conn* container-id {:attach-stdin true
+                                                          :cmd          ["tee" "/data/test.txt"]})]
+        (with-open [exec (api/exec-start *conn* exec-id {:stdin true})]
+          (doto (:stdin exec)
+            (.write (util/str-bytes "hello, world!\n"))
+            (.flush))))
+      ;; Without some small delay the write is not flushed to volume
+      ;; TODO: Figure out if there's a way to flush or wait for i/o
+      (Thread/sleep 200))
+    ; Create container, exec in it to cat /data/test.txt
+    (with-containers [container-id {:cmd         ["sleep" "infinity"]
+                                    :host-config {:mounts [{:source vol-name
+                                                            :type   "volume"
+                                                            :target "/data"}]}}]
+      (api/container-start *conn* container-id)
+      (is (match? {:host-config {:init   true
+                                 :mounts [{:source vol-name
+                                           :type   "volume"
+                                           :target "/data"}]}}
+                  (api/container-inspect *conn* container-id)))
+      (is (= "hello, world!\n"
+             (let [exec-id (api/exec-create *conn* container-id {:attach-stdout true
+                                                                 :cmd           ["cat" "/data/test.txt"]})]
+               (with-open [exec (api/exec-start *conn* exec-id {:stdout true})]
+                 (slurp (:stdout exec)))))))))
+
+
+(comment
+  (api/volume-create nil {:name "test-volume"})
+
+  (with-open [conn (api/connect)]
+    (api/container-create-and-start conn {:image       "debian:12-slim"
+                                          :name        "test-1"
+                                          :cmd         ["sleep" "infinity"]
+                                          :host-config {:init        true
+                                                        :auto-remove true
+                                                        :mounts      [{:source "test-volume"
+                                                                       :type   "volume"
+                                                                       :target "/data"}]}})
+    (let [exec-id (api/exec-create conn "test-1" {:attach-stdin true
+                                                  :cmd          ["tee" "/data/test-2.txt"]})]
+      (with-open [exec (api/exec-start conn exec-id {:stdin true})]
+        (.write (:stdin exec) (util/str-bytes "hello, world!\n"))
+        (.flush (:stdin exec))))
+    (Thread/sleep 1000)
+    (api/container-stop conn "test-1"))
+
+
+  (with-open [conn (api/connect)]
+    (api/container-create-and-start conn {:image       "debian:12-slim"
+                                          :name        "test-2"
+                                          :cmd         ["sleep" "infinity"]
+                                          :host-config {:init        true
+                                                        :auto-remove true
+                                                        :mounts      [{:source "test-volume"
+                                                                       :type   "volume"
+                                                                       :target "/data"}]}})
+    (let [exec-id (api/exec-create conn "test-2" {:attach-stdout true
+                                                  :cmd           ["cat" "/data/test.txt"]})]
+      (with-open [exec (api/exec-start conn exec-id {:stdout true})]
+        (println "TEST:" (slurp (:stdout exec)))))
+    (api/container-stop conn "test-2"))
+
+  (api/container-stop nil "test-2")
+
+  (api/volume-delete nil "test-volume"))

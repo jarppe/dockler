@@ -2,6 +2,16 @@
   (:require [dockler.api :as api]))
 
 
+
+(defn str-bytes ^bytes [^String s]
+  (.getBytes s java.nio.charset.StandardCharsets/UTF_8))
+
+
+;;
+;; Test ID:
+;;
+
+
 (def ^:dynamic *test-id* nil)
 
 (defn with-test-id []
@@ -134,4 +144,45 @@
   ;;                (finally (dockler.api/network-remove boz))))
   ;;            (finally (dockler.api/network-remove bar))))
   ;;        (finally (dockler.api/network-remove foo))))
+  )
+
+
+(defmacro with-volumes [bindings & body]
+  (loop [form                 (list* `do body)
+         [[id volume] & more] (->> bindings
+                                   (partition 2)
+                                   (reverse))]
+    (if (nil? id)
+      form
+      (recur `(let [~id (->> ~volume
+                             (merge {:name (name (gensym "dockler-test-volume-"))})
+                             (api/volume-create *conn*)
+                             :name)]
+                (try
+                  ~form
+                  (finally
+                    (api/volume-delete *conn* ~id))))
+             more))))
+
+(comment
+  (macroexpand-1 '(with-volumes [foo {}
+                                 bar {:name "bar"}]
+                    (println "foo:" foo)
+                    (println "bar:" bar)))
+  ;; => (let [foo (->> {}
+  ;;                   (merge {:name (name (gensym "dockler-test-volume-"))})
+  ;;                   (dockler.api/volume-create *conn*)
+  ;;                   :name)]
+  ;;     (try
+  ;;       (let [bar (->> {:name "bar"}
+  ;;                      (merge {:name (name (gensym "dockler-test-volume-"))})
+  ;;                      (dockler.api/volume-create *conn*)
+  ;;                      :name)]
+  ;;         (try
+  ;;           (do (println "foo:" foo) 
+  ;;               (println "bar:" bar))
+  ;;           (finally
+  ;;             (dockler.api/volume-delete *conn* bar))))
+  ;;       (finally
+  ;;         (dockler.api/volume-delete *conn* foo))))
   )
