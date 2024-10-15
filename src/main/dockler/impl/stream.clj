@@ -14,6 +14,11 @@
     (try (.close s) (catch Exception _))))
 
 
+(defn- flush! [^java.io.OutputStream s]
+  (when s
+    (try (.flush s) (catch Exception _))))
+
+
 (defn eof! []
   (throw (ex-info "unexpected EOF" {})))
 
@@ -70,6 +75,8 @@
 (defrecord StreamResp [^OutputStream stdin ^InputStream stdout ^InputStream stderr -conn -streaming]
   java.io.Closeable
   (close [_]
+    (flush! stdin)
+    (close! stdin)
     (when -streaming (future-cancel -streaming))
     (close! stdout)
     (close! stderr)
