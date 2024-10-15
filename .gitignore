@@ -1,13 +1,13 @@
 *
 
-!/bb
-!/bb/**
 !/src
 !/src/**
+!/test-resources
+!/test-resources/**
 !/.cljfmt.edn
-!/.dockerignore
 !/.gitignore
 !/bb.edn
 !/deps.edn
 !/README.md
 !/tests.edn
+!/version.edn
