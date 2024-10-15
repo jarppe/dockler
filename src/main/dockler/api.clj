@@ -586,9 +586,10 @@
 ; https://docs.docker.com/engine/api/v1.46/#tag/Volume/operation/VolumeInspect
 
 (defn volume-inspect [conn name]
-  (-> (http/GET conn (str "/volumes/" name))
-      (http/assert-status! #{200})
-      :body))
+  (let [resp (-> (http/GET conn (str "/volumes/" name))
+                 (http/assert-status! #{200 404}))]
+    (when (= (:status resp) 200)
+      (:body resp))))
 
 ; https://docs.docker.com/engine/api/v1.46/#tag/Volume/operation/VolumeDelete
 
@@ -598,6 +599,8 @@
    (-> (http/DELETE conn (str "/volumes/" name) {:query-params query})
        (http/assert-status! #{204}))
    nil))
+
+
 
 (comment
   (volume-list nil)
