@@ -254,10 +254,11 @@
                            in)
         body             (when (not= status 101)
                            (case content-type
-                             "application/json" (if (-> req :multiple-json-objcts)
-                                                  (read-multiple-json-objects in)
-                                                  (read-json-object in))
-                             "text/plain"       (slurp in)
+                             "application/json"  (if (-> req :multiple-json-objcts)
+                                                   (read-multiple-json-objects in)
+                                                   (read-json-object in))
+                             "text/plain"        (slurp in)
+                             "application/x-tar" in
                              (.readAllBytes ^InputStream in)))]
     (with-meta
       {:status  status
