@@ -66,6 +66,10 @@
 
 #_{:clj-kondo/ignore [:clojure-lsp/unused-public-var]}
 (defn deploy [_]
+  (when-not (and (System/getenv "CLOJARS_USERNAME")
+                 (System/getenv "CLOJARS_PASSWORD"))
+    (println "error: missing env: CLOJARS_USERNAME and CLOJARS_PASSWORD are required")
+    (System/exit 1))
   (build nil)
   (deploy/deploy {:artifact       jar-file
                   :pom-file       pom-file
