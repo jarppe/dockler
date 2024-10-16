@@ -1,9 +1,9 @@
 {:paths ["src/main"]
  :tasks {test:clj     {:doc  "Run clj tests"
-                       :task (clojure "-M:clj-1.11:test -m kaocha.runner --reporter" "kaocha.report/dots")}
+                       :task (clojure "-M:clj-1.11.4:test -m kaocha.runner --reporter" "kaocha.report/dots")}
 
          test:watch   {:doc  "Run clj tests and watch for changes"
-                       :task (clojure "-X:clj-1.11:test:watch-test")}
+                       :task (clojure "-X:clj-1.11.4:test:watch-test")}
 
          build:jar    {:doc  "Build JAR distribution"
                        :task (clojure "-T:build build")}

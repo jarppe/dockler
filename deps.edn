@@ -1,15 +1,16 @@
 {:paths   ["src/main"]
  :deps    {cheshire/cheshire {:mvn/version "5.13.0"}}
 
- :aliases {:clj-1.12   {:extra-paths {org.clojure/clojure {:mvn/version "1.12.0"}}}
-           :clj-1.11   {:extra-paths {org.clojure/clojure {:mvn/version "1.11.4"}}}
+ :aliases {:optional   {:extra-deps {org.apache.commons/commons-compress {:mvn/version "1.27.1"}}}
+
+           :clj-1.12.0 {:extra-paths {org.clojure/clojure {:mvn/version "1.12.0"}}}
+           :clj-1.11.4 {:extra-paths {org.clojure/clojure {:mvn/version "1.11.4"}}}
 
            :dev        {:extra-paths ["src/dev"]
-                        :extra-deps  {org.clojure/tools.namespace         {:mvn/version "1.5.0"}
-                                      io.github.clojure/tools.build       {:git/tag "v0.10.5"
-                                                                           :git/sha "2a21b7a"}
-                                      slipset/deps-deploy                 {:mvn/version "0.2.2"}
-                                      org.apache.commons/commons-compress {:mvn/version "1.27.1"}}}
+                        :extra-deps  {org.clojure/tools.namespace   {:mvn/version "1.5.0"}
+                                      io.github.clojure/tools.build {:git/tag "v0.10.5"
+                                                                     :git/sha "2a21b7a"}
+                                      slipset/deps-deploy           {:mvn/version "0.2.2"}}}
 
            :test       {:extra-paths ["src/test"]
                         :extra-deps  {org.slf4j/slf4j-nop        {:mvn/version "2.0.16"}
