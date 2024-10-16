@@ -63,7 +63,8 @@
           (when-let [[stream message] (read-frame in)]
             ((streams stream) message)
             (recur))))
-      (catch java.nio.channels.ClosedByInterruptException _)
+      ;; We could catch is java.nio.channels.ClosedByInterruptException and ignore it silently, but 
+      ;; that class is not in babashka at this time
       (catch Exception e
         (.println System/err (str (-> e .getClass .getName) ": " (-> e .getMessage)))
         (.printStackTrace e System/err))
@@ -71,6 +72,8 @@
         (when stdout (stdout))
         (when stderr (stderr))))))
 
+
+;; FIXME: babashka: Can't use java.io.Closeable, not event with proxy
 
 (defrecord StreamResp [^OutputStream stdin ^InputStream stdout ^InputStream stderr -conn -streaming]
   java.io.Closeable
@@ -101,4 +104,3 @@
                       :stderr     stderr
                       :-conn      conn
                       :-streaming streaming})))
-

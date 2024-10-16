@@ -10,8 +10,10 @@
 ;; consuption via the InputStream API. When called without arguments it signals the end
 ;; of data.
 
+;; FIXME: babashka: proxy does not work with two classes in babashka
+
 (defn pipe []
-  (let [buffers   (java.util.concurrent.LinkedBlockingDeque. 256)
+  (let [buffers   (java.util.concurrent.LinkedBlockingQueue. 256)
         buffer    (volatile! (ByteBuffer/allocate 0))
         open?     (volatile! true)
         available (fn []
@@ -53,4 +55,3 @@
                                (.put buffers (ByteBuffer/wrap data)))
                              true)
                          false))))))
-

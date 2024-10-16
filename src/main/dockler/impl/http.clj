@@ -13,8 +13,7 @@
            (java.net URI
                      UnixDomainSocketAddress
                      StandardProtocolFamily)
-           (java.nio.channels Channel
-                              ReadableByteChannel
+           (java.nio.channels ReadableByteChannel
                               WritableByteChannel
                               SocketChannel
                               Channels)))
@@ -65,8 +64,9 @@
 ;; Connection:
 ;;
 
+;; FIXME: babashka: defrecord supports only protocols and proxy does not work with java.io.Closeable
 
-(defrecord Connection [^InputStream in ^OutputStream out ^Channel ch client host]
+(defrecord Connection [^InputStream in ^OutputStream out ^java.io.Closeable ch client host]
   java.io.Closeable
   (close [_this]
     (try (.close in) (catch Exception _))
