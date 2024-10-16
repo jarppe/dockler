@@ -1,5 +1,6 @@
 (ns build
-  (:require [clojure.java.io :as io]
+  (:require [clojure.string :as str]
+            [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.tools.build.api :as b]
             [deps-deploy.deps-deploy :as deploy]))
@@ -15,7 +16,7 @@
 (def pom-file    (str target-dir "/pom.xml"))
 
 
-(defn get-version []
+(defn get-next-version []
   (let [f (io/file "version.edn")
         v (-> (slurp f)
               (edn/read-string)
@@ -25,8 +26,7 @@
       (.write out (pr-str v)))
     (str (:major v) "."
          (:minor v) "."
-         (:build v)
-         (when (:snapshot? v) "-SNAPSHOT"))))
+         (:build v))))
 
 
 (defn clean [_]
@@ -36,7 +36,7 @@
 (defn build-jar [basis]
   (b/jar {:class-dir src-dir
           :jar-file  jar-file})
-  (let [version (get-version)]
+  (let [version (get-next-version)]
     (b/write-pom {:basis    basis
                   :lib      lib-id
                   :target   target-dir
@@ -49,7 +49,7 @@
                                          [:name "Eclipse Public License 1.0"]
                                          [:url "https://opensource.org/license/epl-1-0/"]
                                          [:distribution "repo"]]]]})
-    (println "deployed:" (str lib-id " {:mvn/version \"" version "\"}"))))
+    (println "built jar: version" version)))
 
 
 ;;
@@ -70,4 +70,10 @@
   (deploy/deploy {:artifact       jar-file
                   :pom-file       pom-file
                   :installer      :remote
-                  :sign-releases? false}))
+                  :sign-releases? false})
+  (let [version (->> (io/file "version.edn")
+                     (slurp)
+                     (edn/read-string)
+                     ((juxt :major :minor :build))
+                     (str/join "."))]
+    (println "deployed:" (str lib-id " {:mvn/version \"" version "\"}"))))
