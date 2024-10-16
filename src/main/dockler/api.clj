@@ -304,10 +304,17 @@
 
 ; https://docs.docker.com/engine/api/v1.46/#tag/Container/operation/ContainerAttach
 ;
-; Attach to running container and return java.io.InputStream for stdout and/or stderr.
-; Returns a closeable record with `:stdin`, `:stdout` and `:stderr` keys. 
+; Attach to running container and return a closeable record with `:stdin`, `:stdout` 
+; and `:stderr` keys. 
 ;
-; Callers must close the returned record to avoid leaks.
+; Callers must close the returned record to avoid leaks, for example using `with-open`:
+;
+; (with-open [process (api/container-attach conn container-id {:stdin  true
+;                                                              :stdout true})]
+;   (do-something-with-stdin (:stdin process))
+;   (do-something-with-stdout (:stdout process))
+;   ... what ever else ...
+;   )
 ;
 
 (defn container-attach ^java.io.Closeable [conn container-id streams]
