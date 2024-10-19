@@ -96,7 +96,7 @@
 (defn image-export
   "Export the given image as a TAR archive (see the Docker docs). Return a java.io.InputStream
    of the TAR export."
-  [conn image-tag]
+  ^java.io.InputStream [conn image-tag]
   (let [export-conn (http/clone conn)]
     (-> (http/GET export-conn (str "/images/" image-tag "/get"))
         (http/assert-status! #{200})
